@@ -342,7 +342,7 @@ class ValuationEngine:
             return None
 
 def main():
-    st.markdown('<h1 class="main-header">📊 Valuation Brasil - Fontes Confiáveis</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">Valuation Brasil</h1>', unsafe_allow_html=True)
     
     st.markdown("""
     <div class="success-box">
