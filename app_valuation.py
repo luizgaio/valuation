@@ -12,8 +12,7 @@ warnings.filterwarnings('ignore')
 
 # Configuração da página
 st.set_page_config(
-    page_title="Valuation Brasil - Fontes Confiáveis",
-    page_icon="📊",
+    page_title="Valuation Brasil",
     layout="wide",
     initial_sidebar_state="expanded"
 )
