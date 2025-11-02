@@ -1,4 +1,4 @@
-# app_valuation_confiavel.py
+# app_valuation.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -12,7 +12,8 @@ warnings.filterwarnings('ignore')
 
 # Configuração da página
 st.set_page_config(
-    page_title="Valuation Brasil",
+    page_title="Valuation Brasil - Fontes Confiáveis",
+    page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -341,8 +342,315 @@ class ValuationEngine:
             st.error(f"Erro no cálculo FCD: {e}")
             return None
 
+def analise_gordon(valuation, dados_empresa):
+    st.markdown('<h3 class="section-header">Modelo de Gordon - Valuation por Dividendos</h3>', unsafe_allow_html=True)
+    
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        st.subheader("📋 Premissas do Modelo")
+        
+        taxa_crescimento = st.slider(
+            "Taxa de Crescimento Perpétua (%)",
+            min_value=0.0,
+            max_value=10.0,
+            value=2.5,
+            step=0.1,
+            help="Taxa de crescimento esperada dos dividendos perpetuamente"
+        )
+        
+        taxa_retorno_requerida = st.slider(
+            "Taxa de Retorno Requerida (%)",
+            min_value=5.0,
+            max_value=20.0,
+            value=10.0,
+            step=0.5,
+            help="Taxa mínima de retorno esperada pelo investidor"
+        )
+    
+    with col2:
+        st.subheader("🎯 Resultado do Valuation")
+        
+        dy = dados_empresa.get('dy') or dados_empresa.get('dividend_yield')
+        preco_atual = dados_empresa.get('preco_atual')
+        
+        if dy and preco_atual:
+            valor_justo = valuation.modelo_gordon(
+                dados_empresa, 
+                taxa_crescimento/100, 
+                taxa_retorno_requerida/100
+            )
+            
+            if valor_justo:
+                upside = ((valor_justo / preco_atual) - 1) * 100
+                
+                st.metric(
+                    "Valor Justo (Gordon)",
+                    f"R$ {valor_justo:.2f}",
+                    delta=f"{upside:+.1f}%",
+                    delta_color="normal" if upside > 0 else "inverse"
+                )
+                
+                st.metric("Preço Atual", f"R$ {preco_atual:.2f}")
+                st.metric("Dividend Yield", f"{dy*100:.2f}%")
+                
+                # Análise de sensibilidade
+                st.info("**Análise de Sensibilidade:**")
+                sens_data = []
+                for crescimento in [2.0, 2.5, 3.0]:
+                    for retorno in [9.0, 10.0, 11.0]:
+                        valor = valuation.modelo_gordon(
+                            dados_empresa, 
+                            crescimento/100, 
+                            retorno/100
+                        )
+                        if valor:
+                            sens_data.append({
+                                'Crescimento': crescimento,
+                                'Retorno': retorno,
+                                'Valor': valor
+                            })
+                
+                if sens_data:
+                    df_sens = pd.DataFrame(sens_data)
+                    pivot = df_sens.pivot(index='Crescimento', columns='Retorno', values='Valor')
+                    st.dataframe(pivot.style.format("{:.2f}"))
+            else:
+                st.error("Não foi possível calcular o valuation pelo Modelo de Gordon")
+        else:
+            st.warning("Dados de dividend yield ou preço atual não disponíveis")
+
+def analise_fcd(valuation, dados_empresa):
+    st.markdown('<h3 class="section-header">Fluxo de Caixa Descontado (FCD)</h3>', unsafe_allow_html=True)
+    
+    st.subheader("📋 Premissas do Modelo FCD")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        fcff_inicial = st.number_input(
+            "FCFF Inicial (R$ milhões)",
+            min_value=0.0,
+            max_value=100000.0,
+            value=1000.0,
+            step=100.0
+        )
+        
+        crescimento_estagio1 = st.slider(
+            "Crescimento Estágio 1 (%)",
+            min_value=0.0,
+            max_value=30.0,
+            value=8.0,
+            step=0.5
+        )
+        
+        anos_estagio1 = st.slider(
+            "Anos no Estágio 1",
+            min_value=1,
+            max_value=10,
+            value=5
+        )
+    
+    with col2:
+        crescimento_estagio2 = st.slider(
+            "Crescimento Perpétuo (%)",
+            min_value=0.0,
+            max_value=5.0,
+            value=2.5,
+            step=0.1
+        )
+        
+        wacc = st.slider(
+            "WACC (%)",
+            min_value=5.0,
+            max_value=20.0,
+            value=10.0,
+            step=0.5
+        )
+        
+        taxa_perpetuidade = st.slider(
+            "Taxa de Crescimento Perpétua (%)",
+            min_value=0.0,
+            max_value=5.0,
+            value=2.0,
+            step=0.1
+        )
+    
+    numero_acoes = st.number_input(
+        "Número de Ações (milhões)",
+        min_value=1.0,
+        max_value=10000.0,
+        value=1000.0,
+        step=100.0
+    )
+    
+    # Calcular FCD
+    premisas = {
+        'fcff_inicial': fcff_inicial,
+        'crescimento_estagio1': crescimento_estagio1,
+        'crescimento_estagio2': crescimento_estagio2,
+        'anos_estagio1': anos_estagio1,
+        'wacc': wacc,
+        'taxa_perpetuidade': taxa_perpetuidade,
+        'numero_acoes': numero_acoes
+    }
+    
+    resultado_fcd = valuation.fluxo_caixa_descontado(premisas)
+    
+    if resultado_fcd:
+        st.subheader("🎯 Resultado do Valuation FCD")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric(
+                "Valor por Ação",
+                f"R$ {resultado_fcd['valor_por_acao']:.2f}"
+            )
+        
+        with col2:
+            st.metric(
+                "Valor da Empresa",
+                f"R$ {resultado_fcd['valor_empresa']/1e6:.2f} bi"
+            )
+        
+        with col3:
+            st.metric(
+                "Valor Terminal",
+                f"R$ {resultado_fcd['valor_terminal']/1e6:.2f} bi"
+            )
+        
+        # Tabela de fluxos
+        st.subheader("📊 Fluxos de Caixa Projetados")
+        fluxos_df = pd.DataFrame(resultado_fcd['fluxos_estagio1'])
+        st.dataframe(fluxos_df.style.format({
+            'ano': '{:.0f}',
+            'fcff': 'R$ {:.2f}',
+            'vp': 'R$ {:.2f}'
+        }))
+        
+        # Gráfico dos fluxos
+        fig = px.bar(fluxos_df, x='ano', y='fcff', 
+                     title="Fluxos de Caixa Livre Projetados")
+        st.plotly_chart(fig)
+    
+    else:
+        st.error("Não foi possível calcular o valuation por FCD. Verifique as premissas.")
+
+def analise_dados_empresa(dados_empresa):
+    st.markdown('<h3 class="section-header">Dados Fundamentais da Empresa</h3>', unsafe_allow_html=True)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("📈 Informações Básicas")
+        
+        info_data = {
+            'Ticker': dados_empresa.get('ticker', 'N/A'),
+            'Nome': dados_empresa.get('nome', 'N/A'),
+            'Setor': dados_empresa.get('setor', 'N/A'),
+            'Fonte': dados_empresa.get('fonte_fundamentais', 'N/A')
+        }
+        
+        for key, value in info_data.items():
+            st.metric(key, value)
+    
+    with col2:
+        st.subheader("💰 Métricas de Valuation")
+        
+        metricas = [
+            ('Preço Atual', dados_empresa.get('preco_atual'), 'R$ {:.2f}'),
+            ('P/L', dados_empresa.get('pl'), '{:.1f}'),
+            ('P/VP', dados_empresa.get('pvp'), '{:.2f}'),
+            ('Dividend Yield', dados_empresa.get('dy'), '{:.2%}'),
+            ('ROE', dados_empresa.get('roe'), '{:.2%}'),
+            ('LPA', dados_empresa.get('lpa'), 'R$ {:.2f}'),
+            ('VPA', dados_empresa.get('vpa'), 'R$ {:.2f}')
+        ]
+        
+        for nome, valor, formato in metricas:
+            if valor is not None:
+                if nome in ['Dividend Yield', 'ROE']:
+                    display_val = formato.format(valor)
+                else:
+                    display_val = formato.format(valor)
+                st.metric(nome, display_val)
+            else:
+                st.metric(nome, "N/A")
+    
+    # Histórico de preços
+    if dados_empresa.get('historico') is not None:
+        st.subheader("📊 Histórico de Preços (1 ano)")
+        
+        historico = dados_empresa['historico']
+        fig = px.line(historico, x=historico.index, y='Close', 
+                     title=f"Preço de Fechamento - {dados_empresa['ticker']}")
+        st.plotly_chart(fig)
+
+def analise_multiplos(valuation, dados_empresa):
+    st.markdown('<h3 class="section-header">Valuation por Múltiplos de Mercado</h3>', unsafe_allow_html=True)
+    
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        st.subheader("🏢 Múltiplos Atuais")
+        
+        metricas = [
+            ("P/L", dados_empresa.get('pl'), ""),
+            ("P/VP", dados_empresa.get('pvp'), ""),
+            ("Dividend Yield", dados_empresa.get('dy'), "%"),
+            ("ROE", dados_empresa.get('roe'), "%"),
+            ("LPA", dados_empresa.get('lpa'), "R$"),
+            ("VPA", dados_empresa.get('vpa'), "R$")
+        ]
+        
+        for nome, valor, prefixo in metricas:
+            if valor is not None:
+                if nome in ["Dividend Yield", "ROE"]:
+                    st.metric(nome, f"{valor*100:.2f}%")
+                else:
+                    display_val = f"{prefixo} {valor:.2f}" if prefixo else f"{valor:.2f}"
+                    st.metric(nome, display_val)
+            else:
+                st.metric(nome, "N/A")
+    
+    with col2:
+        st.subheader("🎯 Target Prices")
+        
+        # Dados do setor
+        dados_setor = {
+            'pl': 10, 'pvp': 1.2, 'roe': 0.15
+        }
+        
+        # Calcular targets
+        targets = {}
+        metodos = [
+            ('pl_historico', 'P/L Histórico'),
+            ('pl_setor', 'P/L Setor'),
+            ('pvp_historico', 'P/VP Histórico'),
+            ('pvp_setor', 'P/VP Setor')
+        ]
+        
+        for metodo, nome in metodos:
+            target = valuation.calcular_target_multiplos(dados_empresa, metodo, dados_setor)
+            if target and target > 0:
+                targets[nome] = target
+        
+        # Exibir targets
+        preco_atual = dados_empresa.get('preco_atual')
+        if preco_atual and targets:
+            for metodo, target in targets.items():
+                upside = ((target / preco_atual) - 1) * 100
+                st.metric(
+                    f"Target {metodo}",
+                    f"R$ {target:.2f}",
+                    delta=f"{upside:+.1f}%"
+                )
+        else:
+            st.info("Preço atual necessário para calcular targets")
+
 def main():
-    st.markdown('<h1 class="main-header">Valuation Brasil</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">📊 Valuation Brasil - Fontes Confiáveis</h1>', unsafe_allow_html=True)
     
     st.markdown("""
     <div class="success-box">
@@ -417,70 +725,6 @@ def main():
     
     with tab4:
         analise_dados_empresa(dados_empresa)
-
-def analise_multiplos(valuation, dados_empresa):
-    st.markdown('<h3 class="section-header">Valuation por Múltiplos de Mercado</h3>', unsafe_allow_html=True)
-    
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        st.subheader("🏢 Múltiplos Atuais")
-        
-        metricas = [
-            ("P/L", dados_empresa.get('pl'), ""),
-            ("P/VP", dados_empresa.get('pvp'), ""),
-            ("Dividend Yield", dados_empresa.get('dy'), "%"),
-            ("ROE", dados_empresa.get('roe'), "%"),
-            ("LPA", dados_empresa.get('lpa'), "R$"),
-            ("VPA", dados_empresa.get('vpa'), "R$")
-        ]
-        
-        for nome, valor, prefixo in metricas:
-            if valor is not None:
-                if nome in ["Dividend Yield", "ROE"]:
-                    st.metric(nome, f"{valor*100:.2f}%")
-                else:
-                    display_val = f"{prefixo} {valor:.2f}" if prefixo else f"{valor:.2f}"
-                    st.metric(nome, display_val)
-            else:
-                st.metric(nome, "N/A")
-    
-    with col2:
-        st.subheader("🎯 Target Prices")
-        
-        # Dados do setor
-        dados_setor = {
-            'pl': 10, 'pvp': 1.2, 'roe': 0.15
-        }
-        
-        # Calcular targets
-        targets = {}
-        metodos = [
-            ('pl_historico', 'P/L Histórico'),
-            ('pl_setor', 'P/L Setor'),
-            ('pvp_historico', 'P/VP Histórico'),
-            ('pvp_setor', 'P/VP Setor')
-        ]
-        
-        for metodo, nome in metodos:
-            target = valuation.calcular_target_multiplos(dados_empresa, metodo, dados_setor)
-            if target and target > 0:
-                targets[nome] = target
-        
-        # Exibir targets
-        preco_atual = dados_empresa.get('preco_atual')
-        if preco_atual and targets:
-            for metodo, target in targets.items():
-                upside = ((target / preco_atual) - 1) * 100
-                st.metric(
-                    f"Target {metodo}",
-                    f"R$ {target:.2f}",
-                    delta=f"{upside:+.1f}%"
-                )
-        else:
-            st.info("Preço atual necessário para calcular targets")
-
-# ... (restante das funções mantidas similares)
 
 if __name__ == "__main__":
     main()
